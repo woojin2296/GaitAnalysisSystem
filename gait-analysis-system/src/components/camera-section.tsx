@@ -1,174 +1,168 @@
 "use client";
 
-import React, { useRef, useEffect, useState } from "react";
-import * as posenet from "@tensorflow-models/posenet";
-import "@tensorflow/tfjs";
-import { Loader } from "lucide-react";
+import React, { useEffect, useRef } from "react";
+import * as tf from "@tensorflow/tfjs";
+import "@tensorflow/tfjs-backend-webgpu";
+import "@tensorflow/tfjs-backend-webgl";
+import * as poseDetection from "@tensorflow-models/pose-detection";
+import { Pose } from "@/lib/type";
 
-export function CameraSection() {
-  const webcamRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [posenetModel, setPosenetModel] = useState<posenet.PoseNet | null>(
-    null
-  );
-  const [loading, setLoading] = useState(true);
+export function CameraSection({
+  pose,
+  setPose,
+  data,
+}: {
+  pose: Pose[];
+  setPose: (pose: Pose[]) => void;
+  data: {
+    head_slope: number;
+    body_slope: number;
+    r_arm_angle: number;
+    l_arm_angle: number;
+    r_leg_angle: number;
+    l_leg_angle: number;
+  };
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [loading, setLoading] = React.useState(true);
 
-  // 웹캠 설정
   useEffect(() => {
+    const initializeTF = async () => {
+      try {
+        if (tf.engine().registryFactory["webgpu"]) {
+          await tf.setBackend("webgpu");
+        } else {
+          console.warn("WebGPU is not supported. Falling back to WebGL.");
+          await tf.setBackend("webgl");
+        }
+        await tf.ready();
+        console.log(
+          `Initialized TensorFlow.js with backend: ${tf.getBackend()}`
+        );
+      } catch (error) {
+        console.error("Error initializing TensorFlow.js:", error);
+        await tf.setBackend("webgl");
+      }
+    };
+
     const setupCamera = async () => {
       try {
-        const video = webcamRef.current;
-
+        const video = videoRef.current;
         if (!video) return;
 
         const stream = await navigator.mediaDevices.getUserMedia({
           video: true,
+          audio: false,
         });
-
         video.srcObject = stream;
-
-        video.onloadedmetadata = async () => {
-          await video.play();
-          setLoading(false);
-        };
+        await new Promise((resolve) => {
+          video.onloadedmetadata = () => {
+            video.play();
+            resolve(null);
+            setLoading(false);
+          };
+        });
       } catch (error) {
-        console.error("Webcam setup failed:", error);
-        setLoading(false); // 실패 시에도 로딩 종료
+        console.error("Error setting up camera:", error);
       }
     };
 
-    setupCamera();
+    const detectPose = async (detector: poseDetection.PoseDetector) => {
+      if (videoRef.current && canvasRef.current) {
+        const poses = await detector.estimatePoses(videoRef.current);
+        const ctx = canvasRef.current.getContext("2d");
+
+        if (ctx && poses.length > 0) {
+          setPose(poses[0].keypoints as Pose[]);
+          ctx.clearRect(
+            0,
+            0,
+            canvasRef.current.width,
+            canvasRef.current.height
+          );
+          poses[0].keypoints.forEach(({ x, y, score }) => {
+            if (score !== undefined && score > 0.5) {
+              ctx.beginPath();
+              ctx.arc(x, y, 5, 0, 2 * Math.PI);
+              ctx.fillStyle = "red";
+              ctx.fill();
+            }
+          });
+        }
+      }
+    };
+
+    const startPoseEstimation = async () => {
+      await initializeTF();
+      await setupCamera();
+
+      const model = poseDetection.SupportedModels.MoveNet;
+      const detector = await poseDetection.createDetector(model, {
+        modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING, // 또는 SINGLEPOSE_THUNDER
+      });
+
+      const detect = async () => {
+        await detectPose(detector);
+        requestAnimationFrame(detect); // 프레임 기반으로 추론 실행
+      };
+
+      detect();
+    };
+
+    startPoseEstimation();
   }, []);
 
-  // // PoseNet 모델 로드
-  // useEffect(() => {
-  //   const loadPoseNet = async () => {
-  //     try {
-  //       const model = await posenet.load({
-  //         architecture: "MobileNetV1",
-  //         outputStride: 16,
-  //         inputResolution: { width: 640, height: 480 },
-  //         multiplier: 0.75,
-  //       });
-  //       setPosenetModel(model);
-  //     } catch (error) {
-  //       console.error("PoseNet model loading failed:", error);
-  //     }
-  //   };
-
-  //   loadPoseNet();
-  // }, []);
-
-  // // PoseNet 추정 및 캔버스 렌더링
-  // useEffect(() => {
-  //   const detectPose = async () => {
-  //     if (
-  //       posenetModel &&
-  //       webcamRef.current &&
-  //       webcamRef.current.readyState === 4 &&
-  //       canvasRef.current
-  //     ) {
-  //       const video = webcamRef.current;
-  //       const canvas = canvasRef.current;
-  //       const ctx = canvas.getContext("2d");
-
-  //       if (!ctx) {
-  //         console.error("Canvas context not found");
-  //         return;
-  //       }
-
-  //       // 비디오 크기 동기화
-  //       canvas.width = video.videoWidth;
-  //       canvas.height = video.videoHeight;
-
-  //       const pose = await posenetModel.estimateSinglePose(video, {
-  //         flipHorizontal: true,
-  //       });
-
-  //       // 캔버스 초기화
-  //       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  //       // 비디오 그리기
-  //       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-  //       // 관절 그리기
-  //       pose.keypoints.forEach((keypoint) => {
-  //         if (keypoint.score > 0.5) {
-  //           const { x, y } = keypoint.position;
-  //           ctx.beginPath();
-  //           ctx.arc(x, y, 5, 0, 2 * Math.PI);
-  //           ctx.fillStyle = "red";
-  //           ctx.fill();
-  //         }
-  //       });
-
-  //       console.log("Pose data:", pose);
-  //     }
-  //   };
-
-  //   let animationFrameId: number;
-
-  //   const loop = () => {
-  //     detectPose();
-  //     animationFrameId = requestAnimationFrame(loop);
-  //   };
-
-  //   loop();
-
-  //   return () => {
-  //     cancelAnimationFrame(animationFrameId);
-  //   };
-  // }, [posenetModel]);
-
   return (
-    <div
-      style={{
-        position: "relative",
-        width: "640px",
-        height: "480px",
-        backgroundColor: "#000",
-      }}
-    >
-      {loading && (
-        <div
-          className="flex flex-col items-center"
+    <div className="grid grid-cols-2 gap-4">
+      <div
+        className="col-span-2"
+        style={{ position: "relative", width: "640px", height: "480px" }}
+      >
+        <video
+          ref={videoRef}
           style={{
             position: "absolute",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-            zIndex: 10,
-            color: "#fff",
-            fontSize: "20px",
-            textAlign: "center",
+            top: 0,
+            left: 0,
+            transform: "scaleX(-1)",
+            width: "640px",
+            height: "480px",
           }}
-        >
-          <Loader size={40} color="#fff" className="animate-spin" />
-          <div>Loading...</div>
-        </div>
-      )}
-      <video
-        ref={webcamRef}
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          transform: "scaleX(-1)",
-          display: loading ? "none" : "block",
-        }}
-      />
-      <canvas
-        ref={canvasRef}
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-        }}
-      />
+          autoPlay
+          muted
+          playsInline
+        />
+        <canvas
+          ref={canvasRef}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            transform: "scaleX(-1)",
+          }}
+          width="640"
+          height="480"
+        />
+      </div>
+      <div>
+        {pose.map((p, i) => (
+          <div key={i}>
+            {p.name}:{" "}
+            {p.score > 0.5
+              ? `${p.x.toFixed(2)}, ${p.y.toFixed(2)}`
+              : "Not Detected"}
+          </div>
+        ))}
+      </div>
+      <div>
+        <div>Head Slope : {data.head_slope.toFixed(2)}</div>
+        <div>Body Slope : {data.body_slope.toFixed(2)}</div>
+        <div>Right Arm Angle : {data.r_arm_angle.toFixed(2)}</div>
+        <div>Left Arm Angle : {data.l_arm_angle.toFixed(2)}</div>
+        <div>Right Leg Angle : {data.r_leg_angle.toFixed(2)}</div>
+        <div>Left Leg Angle : {data.l_leg_angle.toFixed(2)}</div>
+      </div>
     </div>
   );
 }
