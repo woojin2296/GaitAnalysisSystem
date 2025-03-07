@@ -99,7 +99,7 @@ export function CameraSection({
 
       const model = poseDetection.SupportedModels.MoveNet;
       const detector = await poseDetection.createDetector(model, {
-        modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING, // 또는 SINGLEPOSE_THUNDER
+        modelType: poseDetection.movenet.modelType.SINGLEPOSE_THUNDER,
       });
 
       const detect = async () => {

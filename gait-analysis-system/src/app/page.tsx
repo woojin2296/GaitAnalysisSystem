@@ -4,8 +4,6 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { BarChartComponent } from "@/components/bar-chart";
 import { CameraSection } from "@/components/camera-section";
 import { LineChartComponent } from "@/components/lline-chart";
-import { RadarChartComponent } from "@/components/radar-chart";
-import { RadialChartComponent } from "@/components/radial-chart";
 import {
   Breadcrumb,
   BreadcrumbItem,

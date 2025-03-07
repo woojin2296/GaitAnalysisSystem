@@ -22,8 +22,12 @@ const data = {
       title: "Getting Started",
       items: [
         {
-          title: "Product Overview",
+          title: "webcam",
           url: "/",
+        },
+        {
+          title: "foot",
+          url: "/foot",
         },
       ],
     },
